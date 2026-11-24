@@ -629,6 +629,36 @@ body {
   justify-content: center;
 }
 
+.picker-item {
+  cursor: default;
+  gap: 12px;
+}
+
+.picker-toggle-btn {
+  flex-shrink: 0;
+  min-width: 84px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--spotify-green);
+  background: var(--spotify-green);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.picker-toggle-btn.is-added {
+  background: transparent;
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.picker-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
 .playlist-more-btn:hover {
   color: var(--text-primary);
   background: var(--border-subtle);

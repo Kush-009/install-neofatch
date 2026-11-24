@@ -1,4 +1,5 @@
 import base64
+import concurrent.futures
 import hashlib
 import http.server
 import json
@@ -621,6 +622,99 @@ def get_lyrics(title, artist, duration_ms=0):
         "source": "none"
     }
 
+_playlist_items = {}
+_playlist_items_lock = threading.Lock()
+_demo_playlist_tracks = {}
+
+
+def valid_spotify_id(value):
+    return len(value) == 22 and value.isascii() and value.isalnum()
+
+
+def playlist_track_uris(playlist_id, snapshot_id):
+    """URIs in a playlist, cached until its snapshot changes. None when unreadable."""
+    with _playlist_items_lock:
+        cached = _playlist_items.get(playlist_id)
+        if cached and snapshot_id and cached["snapshot"] == snapshot_id:
+            return set(cached["uris"])
+    uris = set()
+    offset = 0
+    for _page in range(200):
+        data, status = spotify_client.api_request(
+            f"playlists/{playlist_id}/items", params={"limit": 50, "offset": offset})
+        if status != 200:
+            return None
+        entries = (data or {}).get("items") or []
+        for entry in entries:
+            track = (entry or {}).get("item") or (entry or {}).get("track") or {}
+            if track.get("uri"):
+                uris.add(track["uri"])
+        if not entries or not (data or {}).get("next"):
+            break
+        offset += len(entries)
+    with _playlist_items_lock:
+        _playlist_items[playlist_id] = {"snapshot": snapshot_id, "uris": set(uris)}
+    return uris
+
+
+def remember_playlist_change(playlist_id, uri, added, snapshot_id):
+    with _playlist_items_lock:
+        cached = _playlist_items.get(playlist_id)
+        if not cached:
+            return
+        if not snapshot_id:
+            del _playlist_items[playlist_id]
+            return
+        (cached["uris"].add if added else cached["uris"].discard)(uri)
+        cached["snapshot"] = snapshot_id
+
+
+def editable_playlists():
+    """Playlists the signed-in user may change, as (list, status)."""
+    me, status = spotify_client.api_request("me")
+    if status != 200:
+        return [], status
+    user_id = (me or {}).get("id")
+    playlists = []
+    offset = 0
+    for _page in range(4):
+        data, status = spotify_client.api_request("me/playlists", params={"limit": 50, "offset": offset})
+        if status != 200:
+            return [], status
+        entries = (data or {}).get("items") or []
+        for playlist in entries:
+            if not playlist or not playlist.get("id"):
+                continue
+            owner_id = (playlist.get("owner") or {}).get("id")
+            if owner_id != user_id and not playlist.get("collaborative"):
+                continue
+            images = playlist.get("images") or []
+            playlists.append({
+                "id": playlist["id"], "name": playlist.get("name") or "Playlist",
+                "cover_url": images[0]["url"] if images else "",
+                "snapshot_id": playlist.get("snapshot_id"),
+            })
+        if not entries or not (data or {}).get("next"):
+            break
+        offset += len(entries)
+    return playlists, 200
+
+
+def find_track_id(title, artist):
+    """Look a song up by name when the local media session gives no Spotify ID."""
+    query = " ".join(part for part in (title, artist) if part).strip()
+    if not query:
+        return None, 404
+    data, status = spotify_client.api_request("search", params={"q": query, "type": "track", "limit": 5})
+    if status != 200:
+        return None, status
+    tracks = ((data or {}).get("tracks") or {}).get("items") or []
+    for track in tracks:
+        if track and track.get("id"):
+            return track["id"], 200
+    return None, 404
+
+
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=PUBLIC_DIR, **kwargs)
@@ -1113,23 +1207,77 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                            status=200 if success else status)
             return
 
-        if path in ("/api/like", "/api/playlists/add"):
+        if path == "/api/playlists/options":
             track_id = str(body.get("id") or "")
-            if len(track_id) != 22 or not track_id.isascii() or not track_id.isalnum():
+            if CONFIG.get("demo_mode", False):
+                self.send_json({"success": True, "track_id": track_id, "playlists": [
+                    {"id": p["id"], "name": p["name"], "cover_url": "",
+                     "contains": track_id in _demo_playlist_tracks.get(p["id"], set())}
+                    for p in DEMO_PLAYLISTS if p["type"] == "playlist"]})
+                return
+            if not valid_spotify_id(track_id):
+                track_id, status = find_track_id(str(body.get("title") or ""), str(body.get("artist") or ""))
+                if not track_id:
+                    error = "Could not find this song on Spotify." if status == 404 else self.spotify_error(status)
+                    self.send_json({"success": False, "playlists": [], "error": error}, status=status)
+                    return
+            playlists, status = editable_playlists()
+            if status != 200:
+                self.send_json({"success": False, "playlists": [], "error": self.spotify_error(status)}, status=status)
+                return
+            uri = f"spotify:track:{track_id}"
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+                contents = list(pool.map(
+                    lambda p: playlist_track_uris(p["id"], p.get("snapshot_id")), playlists))
+            for playlist, uris in zip(playlists, contents, strict=True):
+                playlist.pop("snapshot_id", None)
+                playlist["contains"] = None if uris is None else uri in uris
+            self.send_json({"success": True, "track_id": track_id, "playlists": playlists})
+            return
+
+        if path in ("/api/playlists/add", "/api/playlists/remove"):
+            adding = path == "/api/playlists/add"
+            track_id = str(body.get("id") or "")
+            playlist_id = str(body.get("playlist_id") or "")
+            if CONFIG.get("demo_mode", False):
+                if not track_id or not any(p["id"] == playlist_id and p["type"] == "playlist" for p in DEMO_PLAYLISTS):
+                    self.send_json({"success": False, "error": "Choose a Spotify playlist."}, status=400)
+                    return
+                tracks = _demo_playlist_tracks.setdefault(playlist_id, set())
+                (tracks.add if adding else tracks.discard)(track_id)
+                self.send_json({"success": True, "contains": adding})
+                return
+            if not valid_spotify_id(track_id):
+                self.send_json({"success": False, "error":
+                    "The local media session has no Spotify track ID. Select a track from search first."}, status=409)
+                return
+            if not valid_spotify_id(playlist_id):
+                self.send_json({"success": False, "error": "Choose a Spotify playlist."}, status=400)
+                return
+            uri = f"spotify:track:{track_id}"
+            if adding:
+                result, status = spotify_client.api_request(
+                    f"playlists/{playlist_id}/items", method="POST", body={"uris": [uri]})
+            else:
+                result, status = spotify_client.api_request(
+                    f"playlists/{playlist_id}/items", method="DELETE", body={"items": [{"uri": uri}]})
+            success = status in (200, 201, 204)
+            if success:
+                remember_playlist_change(playlist_id, uri, adding, (result or {}).get("snapshot_id"))
+            self.send_json({"success": success, "contains": adding if success else None,
+                            "error": None if success else self.spotify_error(status)},
+                           status=200 if success else status)
+            return
+
+        if path == "/api/like":
+            track_id = str(body.get("id") or "")
+            if not valid_spotify_id(track_id):
                 self.send_json({"success": False, "error":
                     "The local media session has no Spotify track ID. Select a track from search first."}, status=409)
                 return
             uri = f"spotify:track:{track_id}"
-            if path == "/api/like":
-                _result, status = spotify_client.api_request(
-                    "me/library", method="PUT", params={"uris": uri})
-            else:
-                playlist_id = str(body.get("playlist_id") or "")
-                if len(playlist_id) != 22 or not playlist_id.isascii() or not playlist_id.isalnum():
-                    self.send_json({"success": False, "error": "Choose a Spotify playlist."}, status=400)
-                    return
-                _result, status = spotify_client.api_request(
-                    f"playlists/{playlist_id}/items", method="POST", body={"uris": [uri]})
+            _result, status = spotify_client.api_request(
+                "me/library", method="PUT", params={"uris": uri})
             success = status in (200, 201, 204)
             self.send_json({"success": success, "error": None if success else self.spotify_error(status)},
                            status=200 if success else status)

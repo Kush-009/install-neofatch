@@ -366,18 +366,97 @@ document.addEventListener('DOMContentLoaded', async () => {
       showToast('This local media session has no Spotify track ID to add.');
       return;
     }
-    const data = await window.spotify.getPlaylists();
-    const playlists = (data.items || []).filter(item => item.type !== 'liked');
-    if (!playlists.length) {
-      showToast(data.api_error || 'No playlists available. Connect Spotify in Settings.');
+    await openPlaylistPicker(track);
+  });
+
+  const playlistPickerModal = document.getElementById('playlistPickerModal');
+  const playlistPickerList = document.getElementById('playlistPickerList');
+  const playlistPickerTitle = document.getElementById('playlistPickerTitle');
+  let pickerRequest = 0;
+
+  const pickerMessage = (text) => {
+    const note = document.createElement('div');
+    note.className = 'search-empty';
+    note.textContent = text;
+    playlistPickerList.replaceChildren(note);
+  };
+
+  const setPickerButton = (button, contains) => {
+    button.dataset.contains = contains ? '1' : '0';
+    button.textContent = contains ? 'Remove' : 'Add';
+    button.classList.toggle('is-added', contains);
+  };
+
+  const renderPickerRow = (trackId, playlist) => {
+    const row = document.createElement('div');
+    row.className = 'playlist-item picker-item';
+    const left = document.createElement('div');
+    left.className = 'playlist-item-left';
+    const thumb = document.createElement('img');
+    thumb.className = 'playlist-thumb';
+    thumb.alt = '';
+    thumb.src = playlist.cover_url || '/assets/cover-placeholder.svg';
+    const meta = document.createElement('div');
+    meta.className = 'playlist-meta';
+    const name = document.createElement('span');
+    name.className = 'playlist-name';
+    name.textContent = playlist.name;
+    const status = document.createElement('span');
+    status.className = 'playlist-count';
+    const describe = (contains) => {
+      status.textContent = contains === null ? 'Could not check this playlist' : contains ? 'Already in this playlist' : 'Not in this playlist';
+    };
+    describe(playlist.contains);
+    meta.append(name, status);
+    left.append(thumb, meta);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'picker-toggle-btn';
+    setPickerButton(button, playlist.contains === true);
+    button.addEventListener('click', async () => {
+      const removing = button.dataset.contains === '1';
+      button.disabled = true;
+      const result = await postApi(removing ? '/api/playlists/remove' : '/api/playlists/add',
+        { id: trackId, playlist_id: playlist.id });
+      button.disabled = false;
+      if (!result.success) {
+        showToast(result.error || (removing ? 'Could not remove track.' : 'Could not add track.'));
+        return;
+      }
+      setPickerButton(button, !removing);
+      describe(!removing);
+      showToast(removing ? `Removed from ${playlist.name}` : `Added to ${playlist.name}`);
+    });
+    row.append(left, button);
+    return row;
+  };
+
+  async function openPlaylistPicker(track) {
+    const request = ++pickerRequest;
+    const artist = (track.artists || []).map(a => a.name).join(', ');
+    playlistPickerTitle.textContent = track.name ? `Add "${track.name}" to playlist` : 'Add to playlist';
+    pickerMessage('Loading your playlists…');
+    playlistPickerModal.classList.add('active');
+    const data = await postApi('/api/playlists/options', { id: track.id || '', title: track.name || '', artist });
+    if (request !== pickerRequest) return;
+    if (!data.success) {
+      pickerMessage(data.error || 'Could not load your playlists.');
       return;
     }
-    const choice = window.prompt(`Choose a playlist number:\n${playlists.map((item, index) => `${index + 1}. ${item.name}`).join('\n')}`);
-    if (choice === null) return;
-    const playlist = playlists[Number(choice) - 1];
-    if (!playlist) { showToast('Choose a valid playlist number.'); return; }
-    const result = await postApi('/api/playlists/add', { id: track.id, playlist_id: playlist.id });
-    showToast(result.success ? `Added to ${playlist.name}` : result.error || 'Could not add track.');
+    if (!data.playlists.length) {
+      pickerMessage('You have no playlists you can edit yet. Create one first.');
+      return;
+    }
+    playlistPickerList.replaceChildren(...data.playlists.map(p => renderPickerRow(data.track_id, p)));
+  }
+
+  const closePlaylistPicker = () => {
+    pickerRequest++;
+    playlistPickerModal.classList.remove('active');
+  };
+  document.getElementById('closePlaylistPickerBtn').addEventListener('click', closePlaylistPicker);
+  playlistPickerModal.addEventListener('click', (ev) => {
+    if (ev.target === playlistPickerModal) closePlaylistPicker();
   });
 
   document.getElementById('navCreatePlaylist').addEventListener('click', async () => {
