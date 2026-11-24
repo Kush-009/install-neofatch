@@ -1,5 +1,4 @@
 import base64
-import concurrent.futures
 import hashlib
 import http.server
 import json
@@ -151,41 +150,6 @@ DEMO_TRACKS = [
     }
 ]
 
-DEMO_PLAYLISTS = [
-    {
-        "id": "liked",
-        "name": "Liked Songs",
-        "type": "liked",
-        "track_count": 1248,
-        "cover_url": "gradient-purple",
-        "tracks": DEMO_TRACKS
-    },
-    {
-        "id": "pl_1",
-        "name": "Chill Vibes",
-        "type": "playlist",
-        "track_count": 87,
-        "cover_url": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=300&auto=format&fit=crop&q=80",
-        "tracks": [DEMO_TRACKS[0], DEMO_TRACKS[2]]
-    },
-    {
-        "id": "pl_2",
-        "name": "Gaming Music",
-        "type": "playlist",
-        "track_count": 142,
-        "cover_url": "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=300&auto=format&fit=crop&q=80",
-        "tracks": [DEMO_TRACKS[1]]
-    },
-    {
-        "id": "pl_3",
-        "name": "Anime OP/ED",
-        "type": "playlist",
-        "track_count": 73,
-        "cover_url": "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=300&auto=format&fit=crop&q=80",
-        "tracks": [DEMO_TRACKS[0], DEMO_TRACKS[1]]
-    }
-]
-
 class DemoState:
     def __init__(self):
         self.track_index = 0
@@ -195,8 +159,6 @@ class DemoState:
         self.shuffle = False
         self.repeat = "off"
         self.last_update = time.time()
-        self.liked_track_ids = {"demo_1"}
-        self.queue = [DEMO_TRACKS[1], DEMO_TRACKS[2]]
 
     def get_current_track(self):
         return DEMO_TRACKS[self.track_index % len(DEMO_TRACKS)]
@@ -622,99 +584,6 @@ def get_lyrics(title, artist, duration_ms=0):
         "source": "none"
     }
 
-_playlist_items = {}
-_playlist_items_lock = threading.Lock()
-_demo_playlist_tracks = {}
-
-
-def valid_spotify_id(value):
-    return len(value) == 22 and value.isascii() and value.isalnum()
-
-
-def playlist_track_uris(playlist_id, snapshot_id):
-    """URIs in a playlist, cached until its snapshot changes. None when unreadable."""
-    with _playlist_items_lock:
-        cached = _playlist_items.get(playlist_id)
-        if cached and snapshot_id and cached["snapshot"] == snapshot_id:
-            return set(cached["uris"])
-    uris = set()
-    offset = 0
-    for _page in range(200):
-        data, status = spotify_client.api_request(
-            f"playlists/{playlist_id}/items", params={"limit": 50, "offset": offset})
-        if status != 200:
-            return None
-        entries = (data or {}).get("items") or []
-        for entry in entries:
-            track = (entry or {}).get("item") or (entry or {}).get("track") or {}
-            if track.get("uri"):
-                uris.add(track["uri"])
-        if not entries or not (data or {}).get("next"):
-            break
-        offset += len(entries)
-    with _playlist_items_lock:
-        _playlist_items[playlist_id] = {"snapshot": snapshot_id, "uris": set(uris)}
-    return uris
-
-
-def remember_playlist_change(playlist_id, uri, added, snapshot_id):
-    with _playlist_items_lock:
-        cached = _playlist_items.get(playlist_id)
-        if not cached:
-            return
-        if not snapshot_id:
-            del _playlist_items[playlist_id]
-            return
-        (cached["uris"].add if added else cached["uris"].discard)(uri)
-        cached["snapshot"] = snapshot_id
-
-
-def editable_playlists():
-    """Playlists the signed-in user may change, as (list, status)."""
-    me, status = spotify_client.api_request("me")
-    if status != 200:
-        return [], status
-    user_id = (me or {}).get("id")
-    playlists = []
-    offset = 0
-    for _page in range(4):
-        data, status = spotify_client.api_request("me/playlists", params={"limit": 50, "offset": offset})
-        if status != 200:
-            return [], status
-        entries = (data or {}).get("items") or []
-        for playlist in entries:
-            if not playlist or not playlist.get("id"):
-                continue
-            owner_id = (playlist.get("owner") or {}).get("id")
-            if owner_id != user_id and not playlist.get("collaborative"):
-                continue
-            images = playlist.get("images") or []
-            playlists.append({
-                "id": playlist["id"], "name": playlist.get("name") or "Playlist",
-                "cover_url": images[0]["url"] if images else "",
-                "snapshot_id": playlist.get("snapshot_id"),
-            })
-        if not entries or not (data or {}).get("next"):
-            break
-        offset += len(entries)
-    return playlists, 200
-
-
-def find_track_id(title, artist):
-    """Look a song up by name when the local media session gives no Spotify ID."""
-    query = " ".join(part for part in (title, artist) if part).strip()
-    if not query:
-        return None, 404
-    data, status = spotify_client.api_request("search", params={"q": query, "type": "track", "limit": 5})
-    if status != 200:
-        return None, status
-    tracks = ((data or {}).get("tracks") or {}).get("items") or []
-    for track in tracks:
-        if track and track.get("id"):
-            return track["id"], 200
-    return None, 404
-
-
 class RequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=PUBLIC_DIR, **kwargs)
@@ -736,15 +605,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             pass
         except Exception:  # noqa: BLE001, S110
             pass
-
-    def spotify_error(self, status):
-        if status == 401:
-            return "Connect Spotify in Settings, then try again."
-        if status == 403:
-            return spotify_client.api_error or "Spotify denied access. Reconnect for updated permissions; app-owner or account restrictions may still apply."
-        if status == 429:
-            return "Spotify rate limit reached. Try again later."
-        return f"Spotify request failed (HTTP {status})."
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -840,14 +700,7 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             scopes = [
                 "user-read-playback-state",
                 "user-modify-playback-state",
-                "user-read-currently-playing",
-                "playlist-read-private",
-                "playlist-read-collaborative",
-                "playlist-modify-private",
-                "playlist-modify-public",
-                "user-library-read",
-                "user-library-modify",
-                "user-read-recently-played"
+                "user-read-currently-playing"
             ]
             auth_url = "https://accounts.spotify.com/authorize?" + urllib.parse.urlencode({
                 "response_type": "code",
@@ -878,86 +731,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(native_playback_payload(state, media.supports_shuffle, media.supports_repeat))
             return
 
-        if path == "/api/playlists":
-            if CONFIG.get("demo_mode", False):
-                self.send_json({"items": DEMO_PLAYLISTS})
-                return
-            data, status = spotify_client.api_request("me/playlists", params={"limit": 50})
-            if status != 200:
-                self.send_json({"items": [], "api_error": self.spotify_error(status)}, status=status)
-                return
-            playlists = [{"id": "liked", "name": "Liked Songs", "type": "liked",
-                          "track_count": None, "cover_url": "gradient-purple"}]
-            for playlist in (data or {}).get("items", []):
-                if not playlist:
-                    continue
-                images = playlist.get("images") or []
-                playlists.append({
-                    "id": playlist.get("id"), "name": playlist.get("name"),
-                    "type": "playlist", "uri": playlist.get("uri"),
-                    "track_count": (playlist.get("items") or playlist.get("tracks") or {}).get("total"),
-                    "cover_url": images[0]["url"] if images else "",
-                })
-            self.send_json({"items": playlists, "next": (data or {}).get("next")})
-            return
-
-        if path in ("/api/playlist/tracks", "/api/library"):
-            playlist_id = qs.get("id", ["liked"])[0]
-            kind = qs.get("kind", ["liked"])[0]
-            if path == "/api/library":
-                endpoint = "me/player/recently-played" if kind == "recent" else "me/tracks"
-            elif playlist_id == "liked":
-                endpoint = "me/tracks"
-            elif len(playlist_id) == 22 and playlist_id.isascii() and playlist_id.isalnum():
-                endpoint = f"playlists/{playlist_id}/items"
-            else:
-                self.send_json({"items": [], "error": "Invalid playlist ID."}, status=400)
-                return
-            data, status = spotify_client.api_request(endpoint, params={"limit": 50})
-            if status != 200:
-                self.send_json({"items": [], "error": self.spotify_error(status)}, status=status)
-                return
-            tracks = [entry.get("item") or entry.get("track") for entry in (data or {}).get("items", []) if entry]
-            self.send_json({"items": [track for track in tracks if track], "next": (data or {}).get("next")})
-            return
-
-        # Search
-        if path == "/api/search":
-            query = qs.get("q", [""])[0].strip()
-            search_type = qs.get("type", ["track,playlist,artist"])[0]
-            if not query:
-                self.send_json({"tracks": [], "playlists": [], "artists": []})
-                return
-
-            if CONFIG.get("demo_mode", False):
-                q_low = query.lower()
-                matched_tracks = [t for t in DEMO_TRACKS
-                                  if q_low in t["title"].lower() or q_low in t["artist"].lower()]
-                matched_pl = [p for p in DEMO_PLAYLISTS if q_low in p["name"].lower()]
-                self.send_json({
-                    "tracks": {"items": matched_tracks},
-                    "playlists": {"items": matched_pl},
-                    "artists": {"items": []},
-                })
-                return
-
-            if not spotify_client.get_token():
-                self.send_json({"tracks": {"items": []}, "playlists": {"items": []},
-                                "artists": {"items": []}, "needs_login": True})
-                return
-            if spotify_client.api_error:
-                self.send_json({"tracks": {"items": []}, "playlists": {"items": []},
-                                "artists": {"items": []}, "api_error": spotify_client.api_error})
-                return
-
-            data, status = spotify_client.api_request("search", params={"q": query, "type": search_type, "limit": 10})
-            if status == 200 and data:
-                self.send_json(data)
-            else:
-                self.send_json({"tracks": {"items": []}, "playlists": {"items": []},
-                                "api_error": spotify_client.api_error or "Spotify search is not available."})
-            return
-
         # Lyrics
         if path == "/api/lyrics":
             title = qs.get("title", [""])[0]
@@ -965,18 +738,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
             duration_ms = int(qs.get("duration", [0])[0] or 0)
             res = get_lyrics(title, artist, duration_ms)
             self.send_json(res)
-            return
-
-        # Queue
-        if path == "/api/queue":
-            if CONFIG.get("demo_mode", False):
-                self.send_json({"queue": demo_state.queue})
-                return
-            data, status = spotify_client.api_request("me/player/queue")
-            if status == 200 and data:
-                self.send_json(data)
-            else:
-                self.send_json({"queue": [], "api_error": self.spotify_error(status)}, status=status)
             return
 
         # Static files fallback
@@ -1192,129 +953,6 @@ class RequestHandler(http.server.SimpleHTTPRequestHandler):
                     "success": False,
                     "error": "Spotify did not accept repeat through the API or local media session.",
                 }, status=409)
-            return
-
-        if path == "/api/playlists/create":
-            name = str(body.get("name") or "").strip()
-            if not name:
-                self.send_json({"success": False, "error": "Playlist name required."}, status=400)
-                return
-            result, status = spotify_client.api_request(
-                "me/playlists", method="POST", body={"name": name, "public": False})
-            success = status in (200, 201)
-            self.send_json({"success": success, "playlist": result if success else None,
-                            "error": None if success else self.spotify_error(status)},
-                           status=200 if success else status)
-            return
-
-        if path == "/api/playlists/options":
-            track_id = str(body.get("id") or "")
-            if CONFIG.get("demo_mode", False):
-                self.send_json({"success": True, "track_id": track_id, "playlists": [
-                    {"id": p["id"], "name": p["name"], "cover_url": "",
-                     "contains": track_id in _demo_playlist_tracks.get(p["id"], set())}
-                    for p in DEMO_PLAYLISTS if p["type"] == "playlist"]})
-                return
-            if not valid_spotify_id(track_id):
-                track_id, status = find_track_id(str(body.get("title") or ""), str(body.get("artist") or ""))
-                if not track_id:
-                    error = "Could not find this song on Spotify." if status == 404 else self.spotify_error(status)
-                    self.send_json({"success": False, "playlists": [], "error": error}, status=status)
-                    return
-            playlists, status = editable_playlists()
-            if status != 200:
-                self.send_json({"success": False, "playlists": [], "error": self.spotify_error(status)}, status=status)
-                return
-            uri = f"spotify:track:{track_id}"
-            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-                contents = list(pool.map(
-                    lambda p: playlist_track_uris(p["id"], p.get("snapshot_id")), playlists))
-            for playlist, uris in zip(playlists, contents, strict=True):
-                playlist.pop("snapshot_id", None)
-                playlist["contains"] = None if uris is None else uri in uris
-            self.send_json({"success": True, "track_id": track_id, "playlists": playlists})
-            return
-
-        if path in ("/api/playlists/add", "/api/playlists/remove"):
-            adding = path == "/api/playlists/add"
-            track_id = str(body.get("id") or "")
-            playlist_id = str(body.get("playlist_id") or "")
-            if CONFIG.get("demo_mode", False):
-                if not track_id or not any(p["id"] == playlist_id and p["type"] == "playlist" for p in DEMO_PLAYLISTS):
-                    self.send_json({"success": False, "error": "Choose a Spotify playlist."}, status=400)
-                    return
-                tracks = _demo_playlist_tracks.setdefault(playlist_id, set())
-                (tracks.add if adding else tracks.discard)(track_id)
-                self.send_json({"success": True, "contains": adding})
-                return
-            if not valid_spotify_id(track_id):
-                self.send_json({"success": False, "error":
-                    "The local media session has no Spotify track ID. Select a track from search first."}, status=409)
-                return
-            if not valid_spotify_id(playlist_id):
-                self.send_json({"success": False, "error": "Choose a Spotify playlist."}, status=400)
-                return
-            uri = f"spotify:track:{track_id}"
-            if adding:
-                result, status = spotify_client.api_request(
-                    f"playlists/{playlist_id}/items", method="POST", body={"uris": [uri]})
-            else:
-                result, status = spotify_client.api_request(
-                    f"playlists/{playlist_id}/items", method="DELETE", body={"items": [{"uri": uri}]})
-            success = status in (200, 201, 204)
-            if success:
-                remember_playlist_change(playlist_id, uri, adding, (result or {}).get("snapshot_id"))
-            self.send_json({"success": success, "contains": adding if success else None,
-                            "error": None if success else self.spotify_error(status)},
-                           status=200 if success else status)
-            return
-
-        if path == "/api/like":
-            track_id = str(body.get("id") or "")
-            if not valid_spotify_id(track_id):
-                self.send_json({"success": False, "error":
-                    "The local media session has no Spotify track ID. Select a track from search first."}, status=409)
-                return
-            uri = f"spotify:track:{track_id}"
-            _result, status = spotify_client.api_request(
-                "me/library", method="PUT", params={"uris": uri})
-            success = status in (200, 201, 204)
-            self.send_json({"success": success, "error": None if success else self.spotify_error(status)},
-                           status=200 if success else status)
-            return
-
-        if path == "/api/queue/add":
-            uri = body.get("uri")
-            if not uri:
-                self.send_json({"error": "URI required"}, status=400)
-                return
-            if CONFIG.get("demo_mode", False):
-                demo_state.queue.append({
-                    "id": f"q_{time.time()}",
-                    "title": body.get("title", "Queued Track"),
-                    "artist": body.get("artist", "Artist"),
-                    "album": "Album",
-                    "duration_ms": 200000,
-                    "cover_url": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=300&auto=format&fit=crop&q=80"
-                })
-                self.send_json({"success": True})
-                return
-            _result, status = spotify_client.api_request("me/player/queue", method="POST", params={"uri": uri})
-            success = status in (200, 204)
-            self.send_json({"success": success, "error": None if success else self.spotify_error(status)},
-                           status=200 if success else status)
-            return
-
-        if path == "/api/open":
-            uri = (body.get("uri") or "").strip()
-            if not uri.startswith("spotify:"):
-                self.send_json({"success": False, "error": "Only Spotify links can be opened."}, status=400)
-                return
-            opened, error = media.open_uri(uri)
-            if opened:
-                self.send_json({"success": True})
-            else:
-                self.send_json({"success": False, "error": error or "Could not open that in Spotify."}, status=502)
             return
 
         self.send_json({"error": "Not Found"}, status=404)

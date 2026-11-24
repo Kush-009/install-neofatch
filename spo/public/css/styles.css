@@ -209,12 +209,6 @@ body {
   color: var(--text-primary);
 }
 
-.sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .nav-item {
   display: flex;
   align-items: center;
@@ -249,23 +243,17 @@ body {
   color: var(--sidebar-active-text);
 }
 
-.sidebar-divider {
-  height: 1px;
-  background: var(--border-subtle);
-  margin: 14px 10px;
-}
-
 .sidebar-bottom {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-/* Main Grid (2x2 Modular Cards) */
+/* Main Grid: Now Playing and Volume on the left, Lyrics on the right */
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1.15fr 0.85fr;
+  grid-template-rows: 1.4fr 0.6fr;
   gap: 16px;
   height: 100%;
   min-height: 0;
@@ -440,232 +428,10 @@ body {
   transform: scale(1.06);
 }
 
-/* 2. PLAYLISTS & SEARCH CARD */
-.playlists-card {
-  display: flex;
-  flex-direction: column;
-  padding: 20px 24px;
-}
-
-.search-bar-wrapper {
-  position: relative;
-  width: 100%;
-  margin-bottom: 14px;
-}
-
-.search-input {
-  width: 100%;
-  padding: 10px 16px 10px 42px;
-  border-radius: var(--radius-pill);
-  border: 1px solid transparent;
-  background: var(--input-bg);
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 500;
-  outline: none;
-  transition: var(--transition-fast);
-}
-
-.search-input:focus {
-  border-color: var(--spotify-green);
-  background: var(--card-bg);
-  box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.12);
-}
-
-.search-icon-inside {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  width: 18px;
-  height: 18px;
-  pointer-events: none;
-}
-
-.search-clear-btn {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: none;
-}
-
-/* Category Filter Pills */
-.filter-pills {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 14px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-}
-
-.filter-pills::-webkit-scrollbar {
-  display: none;
-}
-
-.pill-btn {
-  padding: 6px 18px;
-  border-radius: var(--radius-pill);
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  background: var(--input-bg);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: var(--transition-fast);
-  white-space: nowrap;
-}
-
-.pill-btn:hover {
-  color: var(--text-primary);
-}
-
-.pill-btn.active {
-  background: var(--spotify-green);
-  color: #ffffff;
-}
-
-.pill-btn.unavailable {
-  opacity: 0.45;
-}
-
-/* Playlist / Search List */
-.playlists-list {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-right: 4px;
-}
-
-.playlists-list::-webkit-scrollbar {
-  width: 5px;
-}
-.playlists-list::-webkit-scrollbar-thumb {
-  background: var(--border-subtle);
-  border-radius: 99px;
-}
-
-.playlist-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-radius: 14px;
-  cursor: pointer;
-  transition: var(--transition-fast);
-}
-
-.playlist-item:hover {
-  background: var(--input-bg);
-}
-
-.playlist-item-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.playlist-thumb {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  object-fit: cover;
-  flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
-}
-
-.playlist-thumb.gradient-purple {
-  background: linear-gradient(135deg, #7045f6, #ab55e9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.playlist-thumb.gradient-purple svg {
-  width: 22px;
-  height: 22px;
-  fill: #ffffff;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
-}
-
-.playlist-meta {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.playlist-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.playlist-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.playlist-more-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.picker-item {
-  cursor: default;
-  gap: 12px;
-}
-
-.picker-toggle-btn {
-  flex-shrink: 0;
-  min-width: 84px;
-  min-height: 38px;
-  padding: 0 16px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--spotify-green);
-  background: var(--spotify-green);
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.picker-toggle-btn.is-added {
-  background: transparent;
-  border-color: var(--border-subtle);
-  color: var(--text-primary);
-}
-
-.picker-toggle-btn:disabled {
-  opacity: 0.5;
-  cursor: wait;
-}
-
-.playlist-more-btn:hover {
-  color: var(--text-primary);
-  background: var(--border-subtle);
-}
-
-/* 3. VOLUME & QUICK ACTIONS CARD */
+/* 2. VOLUME & SHUFFLE CARD */
 .volume-card {
+  grid-column: 1;
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -744,7 +510,7 @@ body {
 /* Quick Action Buttons Row */
 .quick-actions-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -825,8 +591,10 @@ body {
   transform: translateX(18px);
 }
 
-/* 4. LYRICS CARD */
+/* 3. LYRICS CARD */
 .lyrics-card {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   display: flex;
   flex-direction: column;
   padding: 22px 24px;
@@ -1129,24 +897,23 @@ body {
   .deck-sidebar {
     padding: 10px;
   }
-  .sidebar-brand, .sidebar-divider, .sidebar-bottom {
+  .sidebar-brand {
     display: none;
   }
-  .sidebar-nav {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .nav-item { gap: 8px; padding: 8px; font-size: 12px; }
-  .dashboard-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .dashboard-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto max-content; }
   .dashboard-grid {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto;
     height: auto;
     overflow: visible;
   }
-  .filter-pills { flex-wrap: wrap; }
-  .sidebar-nav { margin-bottom: 0; }
-  .sidebar-bottom { display: flex; }
+  .volume-card, .lyrics-card {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .volume-card { gap: 18px; }
+  .lyrics-card { height: 420px; }
   .deck-header { flex-wrap: wrap; height: auto; }
   .status-pill { max-width: 100%; white-space: normal; }
   .status-pill .status-text { white-space: normal; }

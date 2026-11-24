@@ -230,75 +230,12 @@ class SpotifyService {
     }
   }
 
-  async getPlaylists() {
-    try {
-      const res = await fetch('/api/playlists');
-      return await res.json();
-    } catch (err) {
-      return { items: [] };
-    }
-  }
-
-  async getPlaylistTracks(playlistId) {
-    try {
-      const res = await fetch(`/api/playlist/tracks?id=${encodeURIComponent(playlistId)}`);
-      return await res.json();
-    } catch (err) {
-      return { items: [] };
-    }
-  }
-
-  async search(query, type = 'track,playlist,artist,album') {
-    try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=${encodeURIComponent(type)}`);
-      return await res.json();
-    } catch (err) {
-      return { tracks: { items: [] }, playlists: { items: [] } };
-    }
-  }
-
   async getLyrics(title, artist, durationMs = 0) {
     try {
       const res = await fetch(`/api/lyrics?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}&duration=${durationMs}`);
       return await res.json();
     } catch (err) {
       return { syncedLyrics: null, plainLyrics: "Unable to load lyrics." };
-    }
-  }
-
-  async getQueue() {
-    try {
-      const res = await fetch('/api/queue');
-      return await res.json();
-    } catch (err) {
-      return { queue: [] };
-    }
-  }
-
-  async addToQueue(uri, title, artist) {
-    try {
-      const res = await fetch('/api/queue/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uri, title, artist })
-      });
-      return await res.json();
-    } catch (err) {
-      return { success: false };
-    }
-  }
-
-  async likeCurrentTrack() {
-    const item = this.playback && this.playback.item;
-    try {
-      const res = await fetch('/api/like', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item ? item.id : '', title: item ? item.name : '' })
-      });
-      return await res.json();
-    } catch (err) {
-      return { success: false, error: 'Could not reach the deck server.' };
     }
   }
 
